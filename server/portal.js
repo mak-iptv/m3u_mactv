@@ -22,6 +22,7 @@ export async function handshake(mac, portal) {
 
   const text = await r.text(); // Lexo body vetëm një herë
   console.log("Handshake raw:", text);
+  console.log("Channels raw:", text);
 
   const setCookie = r.headers.get("set-cookie") || "";
   const cookie = setCookie.split(",")[0]?.split(";")[0] || "";
