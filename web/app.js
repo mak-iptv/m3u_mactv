@@ -95,6 +95,10 @@ app.get("/api/portal/m3u", async (req, res) => {
     res.status(500).json({ error: e.message || "Gabim i brendshëm" });
   }
 });
+app.get("/", (req, res) => {
+  res.send("Serveri Express po punon. Përdor /api/portal/m3u për playlistën.");
+});
+
 
 // Nis serverin
 app.listen(port, () => {
