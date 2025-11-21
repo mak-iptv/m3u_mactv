@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8" />
+  <title>STB Emulator Web</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>STB Emulator Web</h1>
+  </header>
+
+  <main>
+    <section class="form-section">
+      <label>Portal URL:</label>
+      <input id="portalUrl" placeholder="http://server:port/c" />
+      <label>MAC Address:</label>
+      <input id="mac" placeholder="00:1a:79:6E:D1:2E" />
+      <button id="playBtn">Play</button>
+    </section>
+
+    <section>
+      <h2>Lista e kanaleve</h2>
+      <ul id="channelList"></ul>
+    </section>
+
+    <section>
+      <h2>Player</h2>
+      <video id="player" controls playsinline></video>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="m3u-parser.js"></script>
+  <script src="app.js"></script>
+  <script src="player.js"></script>
+</body>
+</html>
