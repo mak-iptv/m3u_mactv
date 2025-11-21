@@ -1,55 +1,102 @@
-import { parseM3U } from "./m3u-parser.js";
-import { player } from "./player.js";
+// Importo libraritë
+import express from "express";
+import fetch from "node-fetch";
 
-const video = document.getElementById("player");
-const channelListEl = document.getElementById("channelList");
-const playBtn = document.getElementById("playBtn");
-const portalUrlEl = document.getElementById("portalUrl");
-const macEl = document.getElementById("mac");
+const app = express();
+const port = process.env.PORT || 4000;
 
-function playUrl(url) {
-  if (Hls.isSupported()) {
-    const hls = new Hls();
-    hls.loadSource(url);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-  } else {
-    video.src = url;
-    video.play().catch(() => alert("Ky shfletues nuk mbështet HLS."));
-  }
+// Headers bazë për STB
+function baseHeaders(mac, portal) {
+  return {
+    "User-Agent": "MAG250/5.0-0",
+    "Referer": portal,
+    "X-Device-MAC": mac
+  };
 }
 
-function renderChannels(channels) {
-  channelListEl.innerHTML = "";
-  for (const ch of channels) {
-    const li = document.createElement("li");
-    if (ch.logo) {
-      const logo = document.createElement("img");
-      logo.src = ch.logo;
-      logo.style.width = "24px";
-      logo.style.height = "24px";
-      li.appendChild(logo);
-    }
-    const name = document.createElement("span");
-    name.textContent = `${ch.name} [${ch.group}]`;
-    const play = document.createElement("button");
-    play.textContent = "Play";
-    play.onclick = () => playUrl(ch.url);
-    li.append(name, play);
-    channelListEl.appendChild(li);
-  }
-}
+// Handshake me portalin
+async function handshake(mac, portal) {
+  const url = `${portal}/portal.php?type=stb&action=handshake&token=&prehash=0&JsHttpRequest=1-xml`;
+  const r = await fetch(url, { headers: baseHeaders(mac, portal) });
+  if (!r.ok) throw new Error(`Handshake failed: ${r.status}`);
 
-playBtn.onclick = async () => {
-  const portalUrl = portalUrlEl.value.trim();
-  const mac = macEl.value.trim();
-  const r = await fetch(`/api/portal/m3u?mac=${encodeURIComponent(mac)}&portal=${encodeURIComponent(portalUrl)}`);
-  if (!r.ok) {
-    const j = await r.json().catch(() => ({}));
-    alert("Gabim: " + (j.error || r.status));
-    return;
-  }
   const text = await r.text();
-  const channels = parseM3U(text);
-  renderChannels(channels);
-};
+  console.log("Handshake raw:", text);
+
+  const setCookie = r.headers.get("set-cookie") || "";
+  const cookie = setCookie.split(",")[0]?.split(";")[0] || "";
+
+  let token = "";
+  try {
+    const data = JSON.parse(text);
+    token = data?.js?.token || data?.token || "";
+  } catch {
+    const m = text.match(/"token"\s*:\s*"([^"]+)"/);
+    token = m?.[1] || "";
+  }
+  return { cookie, token };
+}
+
+// Merr kanalet
+async function fetchChannels(mac, portal) {
+  const { cookie } = await handshake(mac, portal);
+  const url = `${portal}/portal.php?type=stb&action=get_all_channels&JsHttpRequest=1-xml`;
+
+  const r = await fetch(url, { headers: { ...baseHeaders(mac, portal), Cookie: cookie } });
+  if (!r.ok) throw new Error(`Channels fetch failed: ${r.status}`);
+
+  const text = await r.text();
+  console.log("Channels raw:", text);
+
+  let channels = [];
+  try {
+    const data = JSON.parse(text);
+    channels = (data?.js?.channels || data?.channels || []).map(ch => ({
+      id: ch.id || ch.stream_id,
+      name: ch.name || ch.title,
+      group: ch.category || "Ungrouped",
+      logo: ch.logo || ""
+    }));
+  } catch {
+    channels = [];
+  }
+  return channels;
+}
+
+// Gjenero playlistën M3U
+function renderM3U(channels, mac, portal) {
+  const lines = ["#EXTM3U"];
+  for (const ch of channels) {
+    const logo = ch.logo ? ` tvg-logo="${ch.logo}"` : "";
+    const group = ch.group ? ` group-title="${ch.group}"` : "";
+    lines.push(`#EXTINF:-1${logo}${group},${ch.name}`);
+    lines.push(`${portal}/play/live.php?mac=${mac}&stream=${ch.id}&extension=ts`);
+  }
+  return lines.join("\n");
+}
+
+// Endpoint API
+app.get("/api/portal/m3u", async (req, res) => {
+  try {
+    const mac = req.query.mac;
+    const portal = req.query.portal;
+
+    if (!mac || !portal) {
+      return res.status(400).json({ error: "MAC ose portal mungon" });
+    }
+
+    const channels = await fetchChannels(mac, portal);
+    const m3u = renderM3U(channels, mac, portal);
+
+    res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+    res.send(m3u);
+  } catch (e) {
+    console.error("Gabim:", e);
+    res.status(500).json({ error: e.message || "Gabim i brendshëm" });
+  }
+});
+
+// Nis serverin
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
+});
