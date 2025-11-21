@@ -1,28 +1,23 @@
 import fetch from "node-fetch";
+import config from "./config.js";
 
-// Ndërtimi i URL-ve të plota
-function full(base, path) {
-  return `${base}${path.startsWith("/") ? path : "/" + path}`;
-}
-
-// Headers bazë për STB
+// Headers bazë për STB emulimin
 function baseHeaders(mac, portal) {
   return {
-    "User-Agent": "MAG250/5.0-0",
+    "User-Agent": config.userAgent,
     "Referer": portal,
     "X-Device-MAC": mac
   };
 }
 
-// Handshake
+// Handshake me portalin
 export async function handshake(mac, portal) {
-  const url = full(portal, "portal.php?type=stb&action=handshake&token=&prehash=0&JsHttpRequest=1-xml");
-  const r = await fetch(url, { headers: baseHeaders(mac, portal) });
+  const url = `${portal}/portal.php?type=stb&action=handshake&token=&prehash=0&JsHttpRequest=1-xml`;
+  const r = await fetch(url, { headers: baseHeaders(mac, portal), timeout: config.timeout });
   if (!r.ok) throw new Error(`Handshake failed: ${r.status}`);
 
-  const text = await r.text(); // Lexo body vetëm një herë
+  const text = await r.text();
   console.log("Handshake raw:", text);
-  console.log("Channels raw:", text);
 
   const setCookie = r.headers.get("set-cookie") || "";
   const cookie = setCookie.split(",")[0]?.split(";")[0] || "";
@@ -38,15 +33,15 @@ export async function handshake(mac, portal) {
   return { cookie, token };
 }
 
-// Merr kanalet
+// Merr kanalet nga portal
 export async function fetchChannels(mac, portal) {
   const { cookie } = await handshake(mac, portal);
-  const url = full(portal, "portal.php?type=stb&action=get_all_channels&JsHttpRequest=1-xml");
+  const url = `${portal}/portal.php?type=stb&action=get_all_channels&JsHttpRequest=1-xml`;
 
-  const r = await fetch(url, { headers: { ...baseHeaders(mac, portal), Cookie: cookie } });
+  const r = await fetch(url, { headers: { ...baseHeaders(mac, portal), Cookie: cookie }, timeout: config.timeout });
   if (!r.ok) throw new Error(`Channels fetch failed: ${r.status}`);
 
-  const text = await r.text(); // Lexo body vetëm një herë
+  const text = await r.text();
   console.log("Channels raw:", text);
 
   let channels = [];
@@ -59,19 +54,20 @@ export async function fetchChannels(mac, portal) {
       logo: ch.logo || ""
     }));
   } catch {
+    // Nëse nuk është JSON, kthe bosh
     channels = [];
   }
   return channels;
 }
 
-// Gjenero M3U
+// Gjenero playlistën M3U
 export function renderM3U(channels, mac, portal) {
   const lines = ["#EXTM3U"];
   for (const ch of channels) {
     const logo = ch.logo ? ` tvg-logo="${ch.logo}"` : "";
     const group = ch.group ? ` group-title="${ch.group}"` : "";
     lines.push(`#EXTINF:-1${logo}${group},${ch.name}`);
-    lines.push(full(portal, `play/live.php?mac=${mac}&stream=${ch.id}&extension=ts`));
+    lines.push(`${portal}/play/live.php?mac=${mac}&stream=${ch.id}&extension=ts`);
   }
   return lines.join("\n");
 }
